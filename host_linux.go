@@ -27,7 +27,7 @@ func NewHost(shmPath string) (*HostMapper, error) {
 
 // Map maps the shared memory.
 func (m *HostMapper) Map() error {
-	file, err := os.OpenFile(m.ShmPath, os.O_RDWR, 0644)
+	file, err := os.OpenFile(m.ShmPath, os.O_RDWR, 0o600)
 	if err != nil {
 		return fmt.Errorf("open file: %w", err)
 	}
@@ -37,6 +37,7 @@ func (m *HostMapper) Map() error {
 	if err != nil {
 		return fmt.Errorf("stat file: %w", err)
 	}
+
 	fileSize := info.Size()
 
 	sharedMem, err := unix.Mmap(int(file.Fd()), 0, int(fileSize), unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
@@ -46,10 +47,11 @@ func (m *HostMapper) Map() error {
 
 	m.SharedMem = sharedMem
 	m.Size = uint64(fileSize)
+
 	return nil
 }
 
-// Unmap unmaps the shared memory
+// Unmap unmaps the shared memory.
 func (m *HostMapper) Unmap() error {
 	if err := unix.Munmap(m.SharedMem); err != nil {
 		return fmt.Errorf("munmap: %w", err)
