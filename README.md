@@ -1,38 +1,30 @@
 # Inter-VM Shared Memory
 
-Exchange info with very low latency using Inter-VM Shared Memory (IVSHMEM). This project aims to help interface communication between go programs between host machines and `qemu` virtual machine instances. **For now only windows guests are supported*.
+Exchange info with very low latency using Inter-VM Shared Memory (IVSHMEM). This project aims to help interface communication between go programs between host machines and `qemu` virtual machine instances.
 
-## Prerequisites
+## Getting started
 
-You need to have the following:
-
-### Enabled shared memory in qemu/libvirt
-
-In `libvirt` (`virt-manager`) you have to add the following line to your [xml configuration](https://libvirt.org/formatdomain.html#shared-memory-device):
+In order to use the ivshmem device, we need to enable it. If you are using `libvirt` (`virt-manager`) to manege your `qemu` instances, add the following line to your [xml config](https://libvirt.org/formatdomain.html#shared-memory-device):
 
 ```xml
 <shmem name='my-little-shared-memory'>
   <model type='ivshmem-plain'/>
-  <size unit='M'>16</size>
+  <size unit='M'>64</size>
 </shmem>
 ```
 
-On `qemu`, add the following cmd args:
+If you are using raw `qemu`, use the following cmd args:
 
 ```bash
 -device ivshmem-plain,memdev=ivshmem,bus=pcie.0 \
 -object memory-backend-file,id=ivshmem,share=on,mem-path=/dev/shm/my-little-shared-memory,size=16M
 ```
 
-The `bus` parameter can be adjusted to your needs. You are going to need it when using the library.
+Adjust the `size` parameter as needed, in this example we choose 64MB. 
 
-### Guest driver
+### Example host code
 
-The shared memory is accessed on the windows guest using an IVSHMEM driver. The driver can be downloaded [here](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/upstream-virtio/).
-
-## Code examples
-
-### Host code
+For now only linux hosts are supported, if you want to add windows host support - feel free to contribute.
 
 ```go
 //go:build linux
@@ -40,91 +32,87 @@ The shared memory is accessed on the windows guest using an IVSHMEM driver. The 
 package main
 
 import (
-	"log"
-
-	"github.com/TypicalAM/ivshmem"
-	"golang.org/x/sys/unix"
+	"github.com/TypicalAM/ivshmem/host"
+	"fmt"
 )
 
 func main() {
-	mapper, err := ivshmem.NewHost("/dev/shm/my-little-shared-memory")
-	if err != nil {
-		log.Fatal(err)
-	}
-	if err = mapper.Map(); err != nil {
-		log.Fatal(err)
-	}
-	defer mapper.Unmap()
-	log.Println("Shared mem size", mapper.Size)
+	h, _ := host.New("/dev/shm/my-little-shared-memory") // create the host
+	h.Map() // map the virtual memory
+	defer h.Unmap() // unmap when we're done
 
-	mem := mapper.SharedMem
+	fmt.Println("Shared mem size:", h.Size())
+	fmt.Println("Device path: ", h.DevPath())
+
+	mem := h.SharedMem()
 	msg := []byte("Hello world!")
-	copy(mem, msg)
+	copy(*mem, msg)
 
-	// Make sure the data is synced
-	if err := unix.Msync(mem, unix.MS_SYNC); err != nil {
-		log.Println("Msync error", err)
-	} else {
-		log.Println("Message sent to guest")
-	}
+	h.Sync() // make sure the writes are propagated
+	fmt.Println("Write successful")
 }
 ```
 
-### Guest code
+### Example guest code (windows)
+
+> [!IMPORTANT]
+> Windows guests communicate with the `ivshmem` device using a special driver. It can be downloaded [here](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/upstream-virtio/) from the fedora website
+
+Example guest code:
 
 ```go
 //go:build windows
-
 package main
-
 import (
-	"log"
-
-	"github.com/TypicalAM/ivshmem"
+	"fmt"
+	"github.com/TypicalAM/ivshmem/guest"
 )
 
 func main() {
-	mapper, err := ivshmem.NewGuest(0) // 0 is the device number
-	if err != nil {
-		log.Fatal(err)
-	}
-	if err = mapper.Map(); err != nil {
-		log.Fatal(err)
-	}
-	defer mapper.Unmap()
-	log.Println("Shared mem size", mapper.Size)
-	log.Println("Device path ", mapper.DevicePath)
+	devs, _ := guest.ListDevices()
+	g, _ := guest.New(devs[0].Location())
+	g.Map()
+	defer g.Unmap()
 
-	mem := mapper.SharedMem
-	buf := make([]byte, len([]byte("Hello world!")))
-	copy(buf, mem)
+	fmt.Println("Location:", devs[0].Location())
+	fmt.Println("Guest system:", g.System())
+	fmt.Println("Shared mem size (in MB):", g.Size()/1024/1024)
 
-	log.Println("Message from host:", string(buf))
+	mem := g.SharedMem()
+	buf := make([]byte, 12)
+	copy(buf, *mem)
+
+	fmt.Println("Message from host:", string(buf))
 }
+
 ```
 
-### Outputs
+**This results in the following output:**
 
 On host:
 
 ```
-2023/09/08 17:11:37 Shared mem size 16777216
-2023/09/08 17:11:37 Message sent to guest
+Shared mem size (in MB): 64
+Device path: /dev/shm/my-little-shared-memory
+Write successful
 ```
 
 On guest:
 
 ```
-2023/09/08 17:09:04 Shared mem size 16777216
-2023/09/08 17:09:04 Device path  \\?\pci#ven_1af4&dev_1110&subsys_11001af4&rev_01#6&784e783&0&08100012#{df576976-569d-4672-95a0-f57e4ea0b210}
-2023/09/08 17:09:04 Message from host: Hello world!
+Location: PCI bus 4, device 1, function 0
+Guest system: Windows
+Shared mem size (in MB): 64
+Message from host: Hello world!
 ```
+
+> [!TIP]
+> The emulated PCI bus values can be mismatched with the configuration options - they might have different bus numbers. This is normal and you should not rely on bus values from the `qemu` config - instead use the provided `guest.ListDevices()`
 
 ### FAQ
 
 - Why no CGO?
-  - We would only need C to map the memory, we can use syscalls for that which are assembly that do not grow the stack.
-  - Most of the functions we need are in the `golang.org/x/sys/windows` package, only need to load one dll.
+  - We would only need C to map the memory, we can just use syscalls for that which are assembly that do not grow the stack. Most of the functions we need are in the `golang.org/x/sys/windows` package, only need to load one dll.
 
 - Why use this library when I can communicate using the network?
-  - Shared memory is very low latency. If you need speed (I've done transfers over easily 2.4 Gbps on my machine) this could be the solution. 
+  - Why anything? Also, shared memory is very low latency. If you need speed (I've done transfers over easily 2.4 Gbps on my machine) this could be the solution. 
