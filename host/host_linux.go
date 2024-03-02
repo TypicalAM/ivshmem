@@ -30,7 +30,7 @@ func New(shmPath string) (*Host, error) {
 func (h *Host) Map() error {
 	file, err := os.OpenFile(h.shmPath, os.O_RDWR, 0o600)
 	if err != nil {
-		return fmt.Errorf("open file: %w", err)
+		return fmt.Errorf("open device file: %w", err)
 	}
 	defer file.Close()
 
