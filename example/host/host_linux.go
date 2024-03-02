@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	h, err := host.New("/dev/shm/my-little-shared-memory")
+	h, err := host.New("/dev/shm/my-little-shared-memory-linux")
 	if err != nil {
 		log.Fatalln("Failed to attach to shmem file:", err)
 	}
