@@ -12,22 +12,23 @@ import (
 func main() {
 	devs, err := guest.ListDevices()
 	if err != nil {
-		log.Fatalln("Failed to get the available IVSHMEM PCI devices:", err)
+		log.Fatalln("Cannot list devices:", err)
 	}
 
 	g, err := guest.New(devs[0])
 	if err != nil {
-		log.Fatalln("Failed to create a new guest", err)
+		log.Fatalln("Cannot create guest:", err)
 	}
 
-	if err := g.Map(); err != nil {
-		log.Fatalln("Failed to map the shared memory:", err)
+	err = g.Map()
+	if err != nil {
+		log.Fatalln("Cannot map memory:", err)
 	}
 	defer g.Unmap()
 
 	fmt.Println("We are on:", g.System())
-	fmt.Println("Detected PCI devices:", devs)
-	fmt.Println("Selected PCI device:", g.Location())
+	fmt.Println("Detected IVSHMEM devices:", devs)
+	fmt.Println("Selected IVSHMEM device:", g.Location())
 	fmt.Println("Device path:", g.DevPath())
 	fmt.Println("Shared mem size (in MB):", g.Size()/1024/1024)
 

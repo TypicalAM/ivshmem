@@ -78,13 +78,36 @@ type ivshmemMmap struct {
 	vectors     uint16
 }
 
+// ListDevices lists the available ivshmem devices by their locations.
+func ListDevices() ([]PCILocation, error) {
+	devInfoSet, err := windows.SetupDiGetClassDevsEx(&ivshmemGUID, "", 0, windows.DIGCF_PRESENT|windows.DIGCF_DEVICEINTERFACE, 0, "")
+	if err != nil {
+		return nil, fmt.Errorf("device info set: %w", err)
+	}
+	defer windows.SetupDiDestroyDeviceInfoList(devInfoSet)
+
+	ivshmemDevices, err := getIvshmemDevices(devInfoSet)
+	if err != nil {
+		return nil, fmt.Errorf("get ivshmem devs: %w", err)
+	}
+
+	ivshmemLocations := make([]PCILocation, len(ivshmemDevices))
+	for i := range ivshmemDevices {
+		ivshmemLocations[i] = ivshmemDevices[i].loc
+	}
+
+	return ivshmemLocations, nil
+}
+
 // Guest allows mapping a shared memory region from the windows guest.
 type Guest struct {
 	devPath   string
+	mapped    bool
 	sharedMem []byte
-	devHandle windows.Handle
 	size      uint64
-	devData   DeviceData
+
+	devHandle windows.Handle
+	devData   deviceData
 }
 
 // New returns a new memory mapper.
@@ -93,6 +116,7 @@ func New(location PCILocation) (*Guest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("device info set: %w", err)
 	}
+	defer windows.SetupDiDestroyDeviceInfoList(devInfoSet)
 
 	ivshmemDevices, err := getIvshmemDevices(devInfoSet)
 	if err != nil {
@@ -101,19 +125,15 @@ func New(location PCILocation) (*Guest, error) {
 
 	var found bool
 	var idx = -1
-	for i, device := range ivshmemDevices {
-		if device.Location() == location {
+	for i, dev := range ivshmemDevices {
+		if dev.loc == location {
 			found = true
 			idx = i
 		}
 	}
 
 	if !found {
-		if err := windows.SetupDiDestroyDeviceInfoList(devInfoSet); err != nil {
-			return nil, fmt.Errorf("destroy device info list: %w", err)
-		}
-
-		return nil, errors.New("find device")
+		return nil, ErrCannotFindDevice
 	}
 
 	handle, path, err := establishHandle(devInfoSet, ivshmemDevices[idx])
@@ -121,62 +141,52 @@ func New(location PCILocation) (*Guest, error) {
 		return nil, fmt.Errorf("establish handle: %w", err)
 	}
 
-	if err := windows.SetupDiDestroyDeviceInfoList(devInfoSet); err != nil {
-		return nil, fmt.Errorf("destroy device info list: %w", err)
-	}
-
-	return &Guest{devHandle: *handle, devPath: path}, nil
+	return &Guest{devHandle: *handle, devPath: path, devData: ivshmemDevices[idx]}, nil
 }
 
-// ListDevices lists the available ivshmem devices alng with their ports.
-func ListDevices() ([]DeviceData, error) {
-	devInfoSet, err := windows.SetupDiGetClassDevsEx(&ivshmemGUID, "", 0, windows.DIGCF_PRESENT|windows.DIGCF_DEVICEINTERFACE, 0, "")
-	if err != nil {
-		return nil, fmt.Errorf("device info set: %w", err)
-	}
-
-	ivshmemDevices, err := getIvshmemDevices(devInfoSet)
-	if err != nil {
-		return nil, fmt.Errorf("get ivshmem devs: %w", err)
-	}
-
-	if err := windows.SetupDiDestroyDeviceInfoList(devInfoSet); err != nil {
-		return nil, fmt.Errorf("destroy device info list: %w", err)
-	}
-
-	return ivshmemDevices, nil
-}
-
-// Map maps the memory and returns the mapped memory, the size of the memory and an error if one occurred.
+// Map maps the memory into the program address space.
 func (g *Guest) Map() error {
+	if g.mapped {
+		return ErrAlreadyMapped
+	}
+
 	var ivshmemSize uint64
-	if err := windows.DeviceIoControl(g.devHandle, ioctlIvshmemRequestSize, nil, 0,
-		(*byte)(unsafe.Pointer(&ivshmemSize)), uint32(unsafe.Sizeof(ivshmemSize)), nil, nil); err != nil {
+	err := windows.DeviceIoControl(g.devHandle, ioctlIvshmemRequestSize, nil, 0,
+		(*byte)(unsafe.Pointer(&ivshmemSize)), uint32(unsafe.Sizeof(ivshmemSize)), nil, nil)
+	if err != nil {
 		return fmt.Errorf("get ivshmem size: %w", err)
 	}
 
 	memMap := ivshmemMmap{}
-	if err := windows.DeviceIoControl(g.devHandle, ioctlIvshmemRequestMmap, (*byte)(unsafe.Pointer(&writeCombined)),
-		uint32(unsafe.Sizeof(writeCombined)), (*byte)(unsafe.Pointer(&memMap)), uint32(unsafe.Sizeof(memMap)), nil, nil); err != nil {
+	err = windows.DeviceIoControl(g.devHandle, ioctlIvshmemRequestMmap, (*byte)(unsafe.Pointer(&writeCombined)),
+		uint32(unsafe.Sizeof(writeCombined)), (*byte)(unsafe.Pointer(&memMap)), uint32(unsafe.Sizeof(memMap)), nil, nil)
+	if err != nil {
 		return fmt.Errorf("map ivshmem: %w", err)
 	}
 
 	g.sharedMem = unsafe.Slice((*byte)(memMap.ptr), ivshmemSize)
 	g.size = ivshmemSize
-
+	g.mapped = true
 	return nil
 }
 
-// Unmap unmaps the memory and releases the device handle.
+// Unmap unmaps the memory and releases the device handles.
 func (g Guest) Unmap() error {
-	if err := windows.DeviceIoControl(g.devHandle, ioctlIvshmemReleaseMmap, nil, 0, nil, 0, nil, nil); err != nil {
+	if !g.mapped {
+		return ErrAlreadyUnmapped
+	}
+
+	err := windows.DeviceIoControl(g.devHandle, ioctlIvshmemReleaseMmap, nil, 0, nil, 0, nil, nil)
+	if err != nil {
 		return fmt.Errorf("release ivshmem: %w", err)
 	}
 
-	if err := windows.CloseHandle(g.devHandle); err != nil {
+	err = windows.CloseHandle(g.devHandle)
+	if err != nil {
 		return fmt.Errorf("close handle: %w", err)
 	}
 
+	g.mapped = false
 	return nil
 }
 
@@ -195,9 +205,23 @@ func (g Guest) DevPath() string {
 	return g.devPath
 }
 
-// SharedMem returns the shared memory region.
+// SharedMem returns the shared memory region. Panics if the shared memory isn't mapped yet.
 func (g Guest) SharedMem() *[]byte {
+	if !g.mapped {
+		panic("tried to access unmapped memory")
+	}
+
 	return &g.sharedMem
+}
+
+// Location returns the PCI location of the device.
+func (g Guest) Location() PCILocation {
+	return g.devData.loc
+}
+
+// Sync makes sure the changes made to the shared memory are synced.
+func (g Guest) Sync() error {
+	return windows.Fsync(g.devHandle)
 }
 
 // setupDiCall is a helper function to call SetupDi* functions.
@@ -215,9 +239,9 @@ func setupDiCall(proc *windows.LazyProc, args ...uintptr) syscall.Errno {
 }
 
 // getIvshmemDevices gets the IVSHMEM devices using the setupapi.dll information.
-func getIvshmemDevices(devInfoSet windows.DevInfo) ([]DeviceData, error) {
+func getIvshmemDevices(devInfoSet windows.DevInfo) ([]deviceData, error) {
 	devIndex := 0
-	devInfoDatas := make([]DeviceData, 0)
+	devInfoDatas := make([]deviceData, 0)
 
 	for {
 		devInfoData, err := windows.SetupDiEnumDeviceInfo(devInfoSet, devIndex)
@@ -239,11 +263,6 @@ func getIvshmemDevices(devInfoSet windows.DevInfo) ([]DeviceData, error) {
 			return nil, fmt.Errorf("ivshmem device bus address: %w", err)
 		}
 
-		desc, err := windows.SetupDiGetDeviceRegistryProperty(devInfoSet, devInfoData, windows.SPDRP_DEVICEDESC)
-		if err != nil {
-			return nil, fmt.Errorf("ivshmem device desc: %w", err)
-		}
-
 		rawLocation, err := windows.SetupDiGetDeviceRegistryProperty(devInfoSet, devInfoData, windows.SPDRP_LOCATION_INFORMATION)
 		if err != nil {
 			return nil, fmt.Errorf("ivshmem device location: %w", err)
@@ -254,8 +273,7 @@ func getIvshmemDevices(devInfoSet windows.DevInfo) ([]DeviceData, error) {
 			return nil, fmt.Errorf("convert location: %w", err)
 		}
 
-		devInfoDatas = append(devInfoDatas, DeviceData{
-			desc:    desc.(string),
+		devInfoDatas = append(devInfoDatas, deviceData{
 			loc:     *location,
 			busAddr: uint64(busNumberRaw.(uint32))<<32 | uint64(busAddressRaw.(uint32)),
 			devInfo: *devInfoData,
@@ -270,7 +288,7 @@ func getIvshmemDevices(devInfoSet windows.DevInfo) ([]DeviceData, error) {
 }
 
 // establishHandle establishes a handle to the device and returns the device path and the associated handle.
-func establishHandle(devInfoSet windows.DevInfo, device DeviceData) (*windows.Handle, string, error) {
+func establishHandle(devInfoSet windows.DevInfo, device deviceData) (*windows.Handle, string, error) {
 	devInterfaceData := deviceInterfaceData{}
 	devInterfaceData.cbSize = uint32(unsafe.Sizeof(devInterfaceData))
 	errno := setupDiCall(
@@ -287,21 +305,15 @@ func establishHandle(devInfoSet windows.DevInfo, device DeviceData) (*windows.Ha
 		setupDiGetDeviceInterfaceDetailW, uintptr(devInfoSet), uintptr(unsafe.Pointer(&devInterfaceData)),
 		0, 0, uintptr(unsafe.Pointer(&reqSize)), 0,
 	)
-
 	if errno != 0 && errno != windows.ERROR_INSUFFICIENT_BUFFER {
 		return nil, "", fmt.Errorf("device interface getsize: %w", errno)
 	}
 
-	// Hack stolen from distatus/battery, also couldn't get it to work. We emulate a struct with an array of uint16, remember that
-	// the first two elements are the byte count (size)
+	// SP_DEVICE_INTERFACE_DETAIL_DATA_W is a real windows moment
+	// This hack was stolen from distatus/battery because there just isn't a nice
+	// way to do this correctly (this is a struct, the first 2 elements are a SIZE DWORD)
 	devInterfaceDetailData := make([]uint16, reqSize/2)
-	size := (*uint32)(unsafe.Pointer(&devInterfaceDetailData[0]))
-
-	if unsafe.Sizeof(uint(0)) == 8 {
-		*size = 8
-	} else {
-		*size = 6
-	}
+	devInterfaceDetailData[0] = 8
 
 	errno = setupDiCall(
 		setupDiGetDeviceInterfaceDetailW, uintptr(devInfoSet), uintptr(unsafe.Pointer(&devInterfaceData)),
@@ -344,27 +356,26 @@ func utf16PtrToString(ptr *uint16) string {
 	return windows.UTF16ToString(unsafe.Slice(ptr, length))
 }
 
-// convertLocation converts the location description as given by SetupDiGetDeviceRegistryProperty to a PCILocation.
+// convertLocation converts the location description as given by SetupDiGetDeviceRegistryProperty to a PCILocation. Expected format: "PCI bus 4, device 1, function 0".
 func convertLocation(windowsLocation string) (*PCILocation, error) {
-	// NOTE: This should always be in the format: "PCI bus 4, device 1, function 0"
 	parts := strings.Fields(windowsLocation)
 	if len(parts) != 7 {
-		return nil, ErrInvalidLocationFormat
+		return nil, fmt.Errorf("invalid format: %s", windowsLocation)
 	}
 
 	bus, err := strconv.Atoi(string(parts[2][0]))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid bus format: %w", err)
 	}
 
 	device, err := strconv.Atoi(string(parts[4][0]))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid device format: %w", err)
 	}
 
 	function, err := strconv.Atoi(parts[6])
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid function format: %w", err)
 	}
 
 	return &PCILocation{uint8(bus), uint8(device), uint8(function)}, nil
