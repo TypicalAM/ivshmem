@@ -15,51 +15,30 @@ import (
 )
 
 var ErrInvalidHandle = errors.New("invalid handle")
-var ErrCannotFindDevice = errors.New("cannot find device")
-var ErrInvalidLocationFormat = errors.New("invalid location format")
 
-// Control codes obtained using CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800 to 0x805, METHOD_BUFFERED, FILE_ANY_ACCESS).
+// CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800 to 0x805, METHOD_BUFFERED, FILE_ANY_ACCESS).
 const (
-	ioctlIvshmemRequestSize = 2236420
-	ioctlIvshmemRequestMmap = 2236424
-	ioctlIvshmemReleaseMmap = 2236428
+	ioctlIvshmemRequestPeerID = 2236416
+	ioctlIvshmemRequestSize   = 2236420
+	ioctlIvshmemRequestMmap   = 2236424
+	ioctlIvshmemReleaseMmap   = 2236428
+	ioctlIvshmemRingDoorbell  = 2236432
+	ioctlIvshmemRegisterEvent = 2236436
 )
 
 var (
-	ivshmemGUID                            = windows.GUID{0xdf576976, 0x569d, 0x4672, [8]byte{0x95, 0xa0, 0xf5, 0x7e, 0x4e, 0xa0, 0xb2, 0x10}} // Allows us to find devices recognized by the ivshmem driver (df576976-569d-4672-95a0-f57e4ea0b210)
-	writeCombined                    uint8 = 2                                                                                                 // cache mode for ioctlIvshmemRequestMmap
-	setupapi                               = &windows.LazyDLL{Name: "setupapi.dll", System: true}                                              // Since we're loading lazily, we need not worry about DDL panics
+	ivshmemGUID                            = windows.GUID{Data1: 0xdf576976, Data2: 0x569d, Data3: 0x4672, Data4: [8]byte{0x95, 0xa0, 0xf5, 0x7e, 0x4e, 0xa0, 0xb2, 0x10}} // Allows us to find devices recognized by the ivshmem driver (df576976-569d-4672-95a0-f57e4ea0b210)
+	writeCombined                    uint8 = 2                                                                                                                             // cache mode for ioctlIvshmemRequestMmap
+	setupapi                               = &windows.LazyDLL{Name: "setupapi.dll", System: true}                                                                          // Since we're loading lazily, we need not worry about DDL panics
 	setupDiEnumDeviceInterfaces            = setupapi.NewProc("SetupDiEnumDeviceInterfaces")
 	setupDiGetDeviceInterfaceDetailW       = setupapi.NewProc("SetupDiGetDeviceInterfaceDetailW")
 )
 
-// DeviceData is some basic device data, can be used to determine the device.
-type DeviceData struct {
+// deviceData is some basic device data, can be used to determine the device details.
+type deviceData struct {
 	loc     PCILocation
-	desc    string
 	devInfo windows.DevInfoData
 	busAddr uint64
-}
-
-// Description returns a human-readable device description (in our case hopefully IVSHMEM Device).
-func (dd DeviceData) Description() string {
-	return dd.desc
-}
-
-// Description returns the device location, which should allow you to identify which device you want to use. Those should be relative to the ones defined in the qemu configuration.
-func (dd DeviceData) Location() PCILocation {
-	return dd.loc
-}
-
-// PCILocation contains info about the location of the device.
-type PCILocation struct {
-	bus      uint8
-	device   uint8
-	function uint8
-}
-
-func (p PCILocation) String() string {
-	return fmt.Sprintf("PCI bus %d, device %d, function %d", p.bus, p.device, p.function)
 }
 
 // SP_DEVICE_INTERFACE_DATA as used in SetupDiEnumDeviceInterfaces.
