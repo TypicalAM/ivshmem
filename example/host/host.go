@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	h, err := host.New("/dev/shm/my-little-shared-memory-linux")
+	h, err := host.New("/dev/shm/my-little-shared-memory")
 	if err != nil {
 		log.Fatalln("Failed to attach to shmem file:", err)
 	}
@@ -24,7 +24,7 @@ func main() {
 	fmt.Println("Device path:", h.DevPath())
 
 	mem := h.SharedMem()
-	msg := []byte("Hello world!")
+	msg := []byte("Hello sraken!")
 	copy(*mem, msg)
 
 	if err := h.Sync(); err != nil {
