@@ -61,8 +61,8 @@ func main() {
 Example guest code:
 
 ```go
-//go:build windows
 package main
+
 import (
 	"fmt"
 	"github.com/TypicalAM/ivshmem/guest"
