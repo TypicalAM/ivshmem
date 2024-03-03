@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -288,11 +289,18 @@ func establishHandle(devInfoSet windows.DevInfo, device deviceData) (*windows.Ha
 		return nil, "", fmt.Errorf("device interface getsize: %w", errno)
 	}
 
-	// SP_DEVICE_INTERFACE_DETAIL_DATA_W is a real windows moment
-	// This hack was stolen from distatus/battery because there just isn't a nice
-	// way to do this correctly (this is a struct, the first 2 elements are a SIZE DWORD)
+	// SP_DEVICE_INTERFACE_DETAIL_DATA_W is a real windows moment. This is basically
+	// a struct { DWORD size, UTF16[] dev_path } written as a uint16, so the first two
+	// elements are the size
 	devInterfaceDetailData := make([]uint16, reqSize/2)
 	devInterfaceDetailData[0] = 8
+
+	// For some reason, if there isn't a delay between the GetDeviceInterfaceDetail calls
+	// errno is set to 87 (The parameter is incorrect) with no way to debug the issue.
+	// Trying to print the associated variables creates a micro delay so the bug doesn't appear at all.
+	//
+	// A real fucking Heisenbug
+	time.Sleep(5 * time.Millisecond)
 
 	errno = setupDiCall(
 		setupDiGetDeviceInterfaceDetailW, uintptr(devInfoSet), uintptr(unsafe.Pointer(&devInterfaceData)),
