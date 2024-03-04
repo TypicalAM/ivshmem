@@ -1,6 +1,6 @@
 //go:build linux
 
-package guest
+package ivshmem
 
 import (
 	"fmt"
@@ -105,8 +105,8 @@ type Guest struct {
 	size      uint64
 }
 
-// New returns a new Guest based on the PCI location.
-func New(location PCILocation) (*Guest, error) {
+// NewGuest returns a new Guest based on the PCI location.
+func NewGuest(location PCILocation) (*Guest, error) {
 	devices, err := listIvshmemPCIRaw()
 	if err != nil {
 		return nil, fmt.Errorf("get raw devices: %w", err)

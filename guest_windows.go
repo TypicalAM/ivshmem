@@ -1,6 +1,6 @@
 //go:build windows
 
-package guest
+package ivshmem
 
 import (
 	"errors"
@@ -90,8 +90,8 @@ type Guest struct {
 	devData   deviceData
 }
 
-// New returns a new memory mapper.
-func New(location PCILocation) (*Guest, error) {
+// NewGuest returns a new memory mapper.
+func NewGuest(location PCILocation) (*Guest, error) {
 	devInfoSet, err := windows.SetupDiGetClassDevsEx(&ivshmemGUID, "", 0, windows.DIGCF_PRESENT|windows.DIGCF_DEVICEINTERFACE, 0, "")
 	if err != nil {
 		return nil, fmt.Errorf("device info set: %w", err)

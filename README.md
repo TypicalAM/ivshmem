@@ -32,12 +32,12 @@ For now only linux hosts are supported, if you want to add windows host support 
 package main
 
 import (
-	"github.com/TypicalAM/ivshmem/host"
+	"github.com/TypicalAM/ivshmem"
 	"fmt"
 )
 
 func main() {
-	h, _ := host.New("/dev/shm/my-little-shared-memory")
+	h, _ := ivshmem.NewHost("/dev/shm/my-little-shared-memory")
 	h.Map()
 	defer h.Unmap()
 
@@ -65,12 +65,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/TypicalAM/ivshmem/guest"
+	"github.com/TypicalAM/ivshmem"
 )
 
 func main() {
-	devs, _ := guest.ListDevices()
-	g, _ := guest.New(devs[0])
+	devs, _ := ivshmem.ListDevices()
+	g, _ := ivshmem.NewGuest(devs[0])
 	g.Map()
 	defer g.Unmap()
 
@@ -122,7 +122,7 @@ Message from host: Hello world!
 ```
 
 > [!TIP]
-> The emulated PCI bus values will usually be mismatched with the configuration options - they might have different bus numbers. This is normal and you should not rely on bus values from the `qemu` config - instead use the provided `guest.ListDevices()`
+> The emulated PCI bus values will usually be mismatched with the configuration options - they might have different bus numbers. This is normal and you should not rely on bus values from the `qemu` config - instead use the provided `ivshmem.ListDevices()`
 
 ### FAQ
 

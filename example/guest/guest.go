@@ -4,16 +4,16 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/TypicalAM/ivshmem/guest"
+	"github.com/TypicalAM/ivshmem"
 )
 
 func main() {
-	devs, err := guest.ListDevices()
+	devs, err := ivshmem.ListDevices()
 	if err != nil {
 		log.Fatalln("Cannot list devices:", err)
 	}
 
-	g, err := guest.New(devs[0])
+	g, err := ivshmem.NewGuest(devs[1])
 	if err != nil {
 		log.Fatalln("Cannot create guest:", err)
 	}

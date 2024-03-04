@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/TypicalAM/ivshmem/host"
+	"github.com/TypicalAM/ivshmem"
 )
 
 func main() {
-	h, err := host.New("/dev/shm/my-little-shared-memory")
+	h, err := ivshmem.NewHost("/dev/shm/my-little-shared-memory")
 	if err != nil {
 		log.Fatalln("Failed to attach to shmem file:", err)
 	}

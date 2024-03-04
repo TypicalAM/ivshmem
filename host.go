@@ -1,6 +1,6 @@
 //go:build linux
 
-package host
+package ivshmem
 
 import (
 	"fmt"
@@ -17,8 +17,8 @@ type Host struct {
 	mapped    bool
 }
 
-// New creates a new host mapper.
-func New(shmPath string) (*Host, error) {
+// NewHost creates a new host mapper.
+func NewHost(shmPath string) (*Host, error) {
 	if _, err := os.Stat(shmPath); err != nil {
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
