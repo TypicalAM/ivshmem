@@ -46,7 +46,7 @@ func main() {
 
 	mem := h.SharedMem()
 	msg := []byte("Hello world!")
-	copy(*mem, msg)
+	copy(mem, msg)
 
 	h.Sync()
 	fmt.Println("Write successful")
@@ -82,7 +82,7 @@ func main() {
 
 	mem := g.SharedMem()
 	buf := make([]byte, 12)
-	copy(buf, *mem)
+	copy(buf, mem)
 
 	fmt.Println("Message from host:", string(buf))
 }

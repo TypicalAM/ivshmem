@@ -195,12 +195,12 @@ func (g Guest) DevPath() string {
 }
 
 // SharedMem returns the shared memory region. Panics if the shared memory isn't mapped yet.
-func (g Guest) SharedMem() *[]byte {
+func (g Guest) SharedMem() []byte {
 	if !g.mapped {
 		panic("tried to access unmapped memory")
 	}
 
-	return &g.sharedMem
+	return g.sharedMem
 }
 
 // Location returns the PCI location of the device.

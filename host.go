@@ -72,12 +72,12 @@ func (h Host) DevPath() string {
 }
 
 // SharedMem returns the already mapped shared memory, panics if Map() didn't succeed.
-func (h Host) SharedMem() *[]byte {
+func (h Host) SharedMem() []byte {
 	if !h.mapped {
 		panic("tried to access non-mapped memory")
 	}
 
-	return &h.sharedMem
+	return h.sharedMem
 }
 
 // Sync makes sure the changes made to the shared memory are synced.

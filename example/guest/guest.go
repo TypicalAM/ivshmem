@@ -32,7 +32,7 @@ func main() {
 
 	mem := g.SharedMem()
 	buf := make([]byte, 12)
-	copy(buf, *mem)
+	copy(buf, mem)
 
 	fmt.Println("Message from host:", string(buf))
 }

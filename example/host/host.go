@@ -24,8 +24,8 @@ func main() {
 	fmt.Println("Device path:", h.DevPath())
 
 	mem := h.SharedMem()
-	msg := []byte("Hello sraken!")
-	copy(*mem, msg)
+	msg := []byte("Hello example!")
+	copy(mem, msg)
 
 	if err := h.Sync(); err != nil {
 		log.Fatalln("Failed to flush the memory after writing")
